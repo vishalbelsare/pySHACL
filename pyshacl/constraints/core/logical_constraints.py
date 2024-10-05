@@ -12,6 +12,7 @@ from pyshacl.consts import SH
 from pyshacl.errors import ConstraintLoadError, ReportableRuntimeError, ShapeRecursionWarning, ValidationFailure
 from pyshacl.pytypes import GraphLike, SHACLExecutor
 from pyshacl.rdfutil import stringify_node
+from pyshacl.shape import Shape
 
 SH_not = SH["not"]
 SH_and = SH["and"]
@@ -37,7 +38,7 @@ class NotConstraintComponent(ConstraintComponent):
     shape_expecting = True
     list_taking = False
 
-    def __init__(self, shape):
+    def __init__(self, shape: Shape) -> None:
         super(NotConstraintComponent, self).__init__(shape)
         not_list = list(self.shape.objects(SH_not))
         if len(not_list) < 1:
@@ -48,19 +49,19 @@ class NotConstraintComponent(ConstraintComponent):
         self.not_list = not_list
 
     @classmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[rdflib.URIRef]:
         return [SH_not]
 
     @classmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         return "NotConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[rdflib.Literal]:
         if len(self.not_list) == 1:
-            m = f"Node {stringify_node(datagraph, value_node)} conforms to shape {stringify_node(self.shape.sg.graph, self.not_list[0])}"
+            m = f"Node {stringify_node(datagraph, value_node)} must not conform to shape {stringify_node(self.shape.sg.graph, self.not_list[0])}"
         else:
             nots_list = " , ".join(stringify_node(self.shape.sg.graph, n) for n in self.not_list)
-            m = f"Node {stringify_node(datagraph, value_node)} conforms to one or more shapes in {nots_list}"
+            m = f"Node {stringify_node(datagraph, value_node)} must not conform to any shapes in {nots_list}"
         return [rdflib.Literal(m)]
 
     def evaluate(self, executor: SHACLExecutor, datagraph: GraphLike, focus_value_nodes: Dict, _evaluation_path: List):
@@ -140,7 +141,7 @@ class AndConstraintComponent(ConstraintComponent):
     shape_expecting = True
     list_taking = True
 
-    def __init__(self, shape):
+    def __init__(self, shape: Shape) -> None:
         super(AndConstraintComponent, self).__init__(shape)
         and_list = list(self.shape.objects(SH_and))
         if len(and_list) < 1:
@@ -151,18 +152,18 @@ class AndConstraintComponent(ConstraintComponent):
         self.and_list = and_list
 
     @classmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[rdflib.URIRef]:
         return [SH_and]
 
     @classmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         return "AndConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[rdflib.Literal]:
         and_list = " , ".join(
             stringify_node(self.shape.sg.graph, a_c) for a in self.and_list for a_c in self.shape.sg.graph.items(a)
         )
-        m = "Node {} does not conform to all shapes in {}".format(stringify_node(datagraph, value_node), and_list)
+        m = "Node {} must conform to all shapes in {}".format(stringify_node(datagraph, value_node), and_list)
         return [rdflib.Literal(m)]
 
     def evaluate(
@@ -236,7 +237,7 @@ class OrConstraintComponent(ConstraintComponent):
     shape_expecting = True
     list_taking = True
 
-    def __init__(self, shape):
+    def __init__(self, shape: Shape) -> None:
         super(OrConstraintComponent, self).__init__(shape)
         or_list = list(self.shape.objects(SH_or))
         if len(or_list) < 1:
@@ -247,20 +248,18 @@ class OrConstraintComponent(ConstraintComponent):
         self.or_list = or_list
 
     @classmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[rdflib.URIRef]:
         return [SH_or]
 
     @classmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         return "OrConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[rdflib.Literal]:
         or_list = " , ".join(
             stringify_node(self.shape.sg.graph, o_c) for o in self.or_list for o_c in self.shape.sg.graph.items(o)
         )
-        m = "Node {} does not conform to one or more shapes in {}".format(
-            stringify_node(datagraph, value_node), or_list
-        )
+        m = "Node {} must conform to one or more shapes in {}".format(stringify_node(datagraph, value_node), or_list)
         return [rdflib.Literal(m)]
 
     def evaluate(
@@ -334,7 +333,7 @@ class XoneConstraintComponent(ConstraintComponent):
     shape_expecting = True
     list_taking = True
 
-    def __init__(self, shape):
+    def __init__(self, shape: Shape) -> None:
         super(XoneConstraintComponent, self).__init__(shape)
         xone_nodes = list(self.shape.objects(SH_xone))
         if len(xone_nodes) < 1:
@@ -345,20 +344,18 @@ class XoneConstraintComponent(ConstraintComponent):
         self.xone_nodes = xone_nodes
 
     @classmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[rdflib.URIRef]:
         return [SH_xone]
 
     @classmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         return "XoneConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[rdflib.Literal]:
         xone_list = " , ".join(
             stringify_node(self.shape.sg.graph, a_c) for a in self.xone_nodes for a_c in self.shape.sg.graph.items(a)
         )
-        m = "Node {} does not conform to exactly one shape in {}".format(
-            stringify_node(datagraph, value_node), xone_list
-        )
+        m = "Node {} must conform to exactly one shape in {}".format(stringify_node(datagraph, value_node), xone_list)
         return [rdflib.Literal(m)]
 
     def evaluate(
