@@ -37,20 +37,38 @@ To exit the virtual enviornment:
 $ deactivate
 ```
 
+### Optional: Oxigraph backend
+To enable Oxigraph compatibility, install the optional `oxigraph` extra:
+```bash
+$ pip3 install pyshacl[oxigraph]
+```
+
+This installs `pyoxigraph`, which lets pySHACL run validation and SHACL Rules
+against an Oxigraph store backend.
+
 ## Command Line Use
 For command line use:
 _(these example commandline instructions are for a Linux/Unix based OS)_
 ```bash
 $ pyshacl -s /path/to/shapesGraph.ttl -m -i rdfs -a -j -f human /path/to/dataGraph.ttl
 ```
+To validate multiple data graphs in combine mode (default):
+```bash
+$ pyshacl -s /path/to/shapesGraph.ttl /path/to/dataGraph1.ttl /path/to/dataGraph2.ttl
+```
+To validate multiple data graphs independently:
+```bash
+$ pyshacl --validate-each -s /path/to/shapesGraph.ttl /path/to/dataGraph1.ttl /path/to/dataGraph2.ttl
+```
 Where
  - `-s` is an (optional) path to the shapes graph to use
  - `-e` is an (optional) path to an extra ontology graph to import
  - `-i` is the pre-inferencing option
  - `-f` is the ValidationReport output format (`human` = human-readable validation report)
+ - `--validate-each` validates each data graph independently when multiple inputs are provided
  - `-m` enable the meta-shacl feature
  - `-a` enable SHACL Advanced Features
- - `-j` enable SHACL-JS Features (if `pyhsacl[js]` is installed)
+ - `-j` enable SHACL-JS Features (if `pyshacl[js]` is installed)
 
 System exit codes are:
 `0` = DataGraph is Conformant
@@ -64,18 +82,18 @@ $ pyshacl -h
 $ python3 -m pyshacl -h
 usage: pyshacl [-h] [-s [SHACL]] [-e [ONT]] [-i {none,rdfs,owlrl,both}] [-m]
                [-im] [-a] [-j] [-it] [--abort] [--allow-info] [-w]
-               [--max-depth [MAX_DEPTH]] [-d]
+               [--max-depth [MAX_DEPTH]] [-d] [--validate-each]
                [-f {human,table,turtle,xml,json-ld,nt,n3}]
                [-df {auto,turtle,xml,json-ld,nt,n3}]
                [-sf {auto,turtle,xml,json-ld,nt,n3}]
                [-ef {auto,turtle,xml,json-ld,nt,n3}] [-V] [-o [OUTPUT]]
                [--server]
-               DataGraph
+               DataGraph [DataGraph ...]
 
-PySHACL 0.26.0 command line tool.
+PySHACL 0.27.0 command line tool.
 
 positional arguments:
-  DataGraph             The file containing the Target Data Graph.
+  DataGraph             The file(s) containing the Target Data Graph.
 
 optional arguments:
   --server              Ignore all the rest of the options, start the HTTP Server.
@@ -109,7 +127,14 @@ optional arguments:
                         The maximum number of SHACL shapes "deep" that the
                         validator can go before reaching an "endpoint"
                         constraint.
-  -d, --debug           Output additional runtime messages.
+  -d, --debug           Output additional verbose runtime messages.
+  --validate-each       Validate each data graph independently when multiple
+                        inputs are provided.
+  --focus [FOCUS]       Optional IRIs of focus nodes from the DataGraph, the shapes will
+                        validate only these node. Comma-separated list.
+  --shape [SHAPE]       Optional IRIs of a NodeShape or PropertyShape from the SHACL
+                        ShapesGraph, only these shapes will be used to validate the
+                        DataGraph. Comma-separated list.
   -f {human,table,turtle,xml,json-ld,nt,n3}, --format {human,table,turtle,xml,json-ld,nt,n3}
                         Choose an output format. Default is "human".
   -df {auto,turtle,xml,json-ld,nt,n3}, --data-file-format {auto,turtle,xml,json-ld,nt,n3}
@@ -133,9 +158,14 @@ For basic use of this module, you can just call the `validate` function of the `
 
 ```python
 from pyshacl import validate
+
+data_graph = "some-data.ttl"
+shacl_graph = "some-shacl.ttl"
+ont_graph = "some-ontology.ttl"
+
 r = validate(data_graph,
-      shacl_graph=sg,
-      ont_graph=og,
+      shacl_graph=shacl_graph,
+      ont_graph=ont_graph,
       inference='rdfs',
       abort_on_first=False,
       allow_infos=False,
@@ -147,8 +177,46 @@ r = validate(data_graph,
 conforms, results_graph, results_text = r
 ```
 
+To validate using an Oxigraph-backed data graph:
+
+```python
+from pyoxigraph import RdfFormat, Store
+from pyshacl import validate
+
+data_store = Store()
+with open("some-data.ttl", "rb") as f:
+    data_store.bulk_load(f.read(), format=RdfFormat.TURTLE)
+
+conforms, results_graph, results_text = validate(
+    data_store,
+    shacl_graph="some-shacl.ttl",
+    ont_graph="some-ontology.ttl",
+    advanced=True,
+)
+```
+
+The same Oxigraph store input is also supported by `shacl_rules(...)`.
+
+To validate multiple data graphs in combine mode (default):
+```python
+from pyshacl import validate
+
+data_graphs = ["data1.ttl", "data2.ttl", "data3.ttl"]
+conforms, results_graph, results_text = validate(data_graphs, shacl_graph="shapes.ttl")
+```
+
+To validate each data graph independently:
+```python
+from pyshacl import validate_each
+
+data_graphs = ["data1.ttl", "data2.ttl", "data3.ttl"]
+results = validate_each(data_graphs, shacl_graph="shapes.ttl")
+for graph_id, (conforms, results_graph, results_text) in results.items():
+    print(graph_id, conforms)
+```
+
 Where:
-* `data_graph` is an rdflib `Graph` object or file path of the graph to be validated
+* `data_graph` is an rdflib `Graph` object, file path, or a sequence of those to be validated
 * `shacl_graph` is an rdflib `Graph` object or file path or Web URL of the graph containing the SHACL shapes to validate with, or None if the SHACL shapes are included in the data_graph.
 * `ont_graph` is an rdflib `Graph` object or file path or Web URL a graph containing extra ontological information, or None if not required. RDFS and OWL definitions from this are used to inoculate the DataGraph.
 * `inference` is a Python string value to indicate whether or not to perform OWL inferencing expansion of the `data_graph` before validation.
@@ -169,13 +237,13 @@ Some other optional keyword variables available on the `validate` function:
 * `do_owl_imports`: Enable the feature to allow the import of subgraphs using `owl:imports` for the shapes graph and the ontology graph. Note, you explicitly cannot use this on the target data graph.
 * `serialize_report_graph`: Convert the report results_graph into a serialised representation (for example, 'turtle')
 * `check_dash_result`: Check the validation result against the given expected DASH test suite result.
+* `multi_data_graphs_mode`: When passing a sequence of data graphs, choose `"combine"` or `"validate_each"`.
 
 Return value:
 * a three-component `tuple` containing:
-  * `conforms`: a `bool`, indicating whether or not the `data_graph` conforms to the `shacl_graph`
-  * `results_graph`: a `Graph` object built according to the SHACL specification's [Validation Report](https://www.w3.org/TR/shacl/#validation-report) structure
+  * `conforms`: a `bool`, indicating whether the `data_graph` conforms to the `shacl_graph`
+  * `results_graph`: a `Graph` object built according to the SHACL specification's [Validation Report](https://www.w3.org/TR/shacl/#validation-report) scheme
   * `results_text`: python string representing a verbose textual representation of the [Validation Report](https://www.w3.org/TR/shacl/#validation-report)
-
 
 ## Python Module Call
 
@@ -200,6 +268,21 @@ Unlike `ValidationFailure`, these errors are not passed back as a result by the 
 caught in a `try ... except` block.
 In the case of `ShapeLoadError` and `ConstraintLoadError`, see the `str()` string representation of the exception instance for the error message along with a link to the relevant section in the SHACL spec document.
 
+## Focus Node Filtering, and Shape Selection
+PySHACL v0.27.0 and above has two powerful new features:
+- Focus Node Filtering
+  - You can pass in a list of focus nodes to the validator, and it will only validate those focus nodes.
+  - _Note_, you still need to use a SHACL ShapesGraph, and the Shapes _still need to target_ the focus nodes.
+  - This feature will filter the Shapes' targeted focus nodes to include only those that are in the list of specified focus nodes.
+- SHACL Shape selection
+  - You can pass in a list of SHACL Shapes to the validator, and it will use only those Shapes for validation.
+  - This is useful for testing new shapes in your shapes graph, or for many other procedure-driven use cases.
+- Combined Shape Selection with Focus Node filtering
+  - The combination of the above two new features is especially powerful.
+  - If you give the validator a list of Shapes to use, and a list of focus nodes, the validator will operate in
+    a highly-targeted mode, it feeds those focus nodes directly into those given Shapes for validation.
+  - In this mode, the selected SHACL Shape does not need to specify any focus-targeting mechanisms of its own.
+
 ## SPARQL Remote Graph Mode
 
 _**PySHACL now has a built-in SPARQL Remote Graph Mode, which allows you to validate a data graph that is stored on a remote server.**_
@@ -211,6 +294,24 @@ _**PySHACL now has a built-in SPARQL Remote Graph Mode, which allows you to vali
     - SHACL Rules (Advanced mode SPARQL-Rules) are not allowed (because the remote graph is read-only)
     - All SHACL-JS features are disabled (this is not safe when operating on a remote graph)
     - "inplace" mode is disabled (actually all operations on the remote data graph are inherently performed in-place)
+
+## Inference and Rules
+PySHACL can perform inference - creation of new data using rules - according to the [SHACL Advanced Features - Rules specification](https://www.w3.org/TR/shacl-af/#rules).
+
+The `shacl_rules` function can be used like this:
+
+```python
+from pyshacl import shacl_rules
+
+data_graph = "some-data.ttl"
+shacl_graph = "some-shacl.ttl"
+
+output_graph = shacl_rules(data_graph, shacl_graph=shacl_graph, advanced=True)
+```
+
+In the code above, the `output_graph` will contain the original RDF triples in the `data_graph` as well as new triples generated by the `shacl_graph`.
+
+See the example file `examples/rules_inference.py` for a working example of PySHACL performing two kinds of SHACL inference.
 
 ## Integrated OpenAPI-3.0-compatible HTTP REST Service
 
@@ -292,43 +393,40 @@ PySHACL is a PEP518 & PEP517 project, it uses `pyproject.toml` and `poetry` to m
 For best compatibility when installing from PyPI with `pip`, upgrade to pip v20.0.2 or above.
   - If you're on Ubuntu 18.04 or older, you will need to run `sudo pip3 install --upgrade pip` to get the newer version.
 
-
 ## Features
 A features matrix is kept in the [FEATURES file](https://github.com/RDFLib/pySHACL/blob/master/FEATURES.md).
-
 
 ## Changelog
 A comprehensive changelog is kept in the [CHANGELOG file](https://github.com/RDFLib/pySHACL/blob/master/CHANGELOG.md).
 
-
 ## Benchmarks
 This project includes a script to measure the difference in performance of validating the same source graph that has been inferenced using each of the four different inferencing options. Run it on your computer to see how fast the validator operates for you.
-
 
 ## License
 This repository is licensed under Apache License, Version 2.0. See the [LICENSE deed](https://github.com/RDFLib/pySHACL/blob/master/LICENSE.txt) for details.
 
-
 ## Contributors
 See the [CONTRIBUTORS file](https://github.com/RDFLib/pySHACL/blob/master/CONTRIBUTORS.md).
-
 
 ## Citation
 DOI: [10.5281/zenodo.4750840](https://doi.org/10.5281/zenodo.4750840) (For all versions/latest version)
 
 ## Contacts
-Project Lead:
-**Nicholas Car**
-*Senior Experimental Scientist*
-CSIRO Land & Water, Environmental Informatics Group
-Brisbane, Qld, Australia
-<nicholas.car@csiro.au>
-<http://orcid.org/0000-0002-8742-7730>
 
-Lead Developer:
-**Ashley Sommer**
-*Informatics Software Engineer*
-CSIRO Land & Water, Environmental Informatics Group
-Brisbane, Qld, Australia
-<Ashley.Sommer@csiro.au>
+### Lead Developer
+
+**Ashley Sommer**  
+*Software Engineer*  
+[Department of Climate Change, Energy, the Environment and Water](https://www.dcceew.gov.au)  
+Brisbane, Qld, Australia  
+<Ashley.Sommer@dcceew.gov.au>  
 <https://orcid.org/0000-0003-0590-0131>
+
+### Support developer
+
+**Nicholas Car**  
+*Data Architect*  
+[KurrawongAI](https://kurrawong.ai)  
+Brisbane, Qld, Australia  
+<nick@kurrawong.ai>  
+<http://orcid.org/0000-0002-8742-7730>

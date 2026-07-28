@@ -5,11 +5,11 @@ import argparse
 import os
 import sys
 from io import BufferedReader
-from typing import Union, cast
+from typing import List, Union, cast
 
 from prettytable import PrettyTable
 
-from pyshacl import __version__, validate
+from pyshacl import __version__, validate, validate_each
 from pyshacl.errors import (
     ConstraintLoadError,
     ReportableRuntimeError,
@@ -41,9 +41,9 @@ parser = argparse.ArgumentParser(description='PySHACL {} Validator command line 
 parser.add_argument(
     'data',
     metavar='DataGraph',
-    help='The file or endpoint containing the Target Data Graph.',
+    help='The file(s) or endpoint containing the Target Data Graph.',
     default=None,
-    nargs='?',
+    nargs='*',
 )
 parser.add_argument(
     '-s',
@@ -147,14 +147,42 @@ parser.add_argument(
     help="The maximum number of SHACL shapes \"deep\" that the validator can go before reaching an \"endpoint\" constraint.",
 )
 parser.add_argument(
-    '-d', '--debug', dest='debug', action='store_true', default=False, help='Output additional runtime messages.'
+    '-d',
+    '--debug',
+    dest='debug',
+    action='store_true',
+    default=False,
+    help='Output additional verbose runtime messages.',
+)
+parser.add_argument(
+    '--validate-each',
+    dest='validate_each',
+    action='store_true',
+    default=False,
+    help='Validate each data graph independently when multiple inputs are provided.',
+)
+parser.add_argument(
+    '--focus',
+    dest='focus',
+    action='store',
+    help='Optional IRIs of focus nodes from the DataGraph, the shapes will validate only these node. Comma-separated list.',
+    nargs="?",
+    default=None,
+)
+parser.add_argument(
+    '--shape',
+    dest='shape',
+    action='store',
+    help='Optional IRIs of a NodeShape or PropertyShape from the SHACL ShapesGraph, only these shapes will be used to validate the DataGraph. Comma-separated list.',
+    nargs="?",
+    default=None,
 )
 parser.add_argument(
     '-f',
     '--format',
     dest='format',
     action='store',
-    help='Choose an output format. Default is \"human\".',
+    help='Choose an output format. Default is "human".',
     default='human',
     choices=('human', 'table', 'turtle', 'xml', 'json-ld', 'nt', 'n3'),
 )
@@ -163,7 +191,7 @@ parser.add_argument(
     '--data-file-format',
     dest='data_file_format',
     action='store',
-    help='Explicitly state the RDF File format of the input DataGraph file. Default=\"auto\".',
+    help='Explicitly state the RDF File format of the input DataGraph file. Default="auto".',
     default='auto',
     choices=('auto', 'turtle', 'xml', 'json-ld', 'nt', 'n3'),
 )
@@ -172,7 +200,7 @@ parser.add_argument(
     '--shacl-file-format',
     dest='shacl_file_format',
     action='store',
-    help='Explicitly state the RDF File format of the input SHACL file. Default=\"auto\".',
+    help='Explicitly state the RDF File format of the input SHACL file. Default="auto".',
     default='auto',
     choices=('auto', 'turtle', 'xml', 'json-ld', 'nt', 'n3'),
 )
@@ -181,7 +209,7 @@ parser.add_argument(
     '--ont-file-format',
     dest='ont_file_format',
     action='store',
-    help='Explicitly state the RDF File format of the extra ontology file. Default=\"auto\".',
+    help='Explicitly state the RDF File format of the extra ontology file. Default="auto".',
     default='auto',
     choices=('auto', 'turtle', 'xml', 'json-ld', 'nt', 'n3'),
 )
@@ -194,6 +222,13 @@ parser.add_argument(
     type=argparse.FileType('w'),
     help='Send output to a file (defaults to stdout).',
     default=sys.stdout,
+)
+parser.add_argument(
+    '--rules',
+    help='Ignore validation options, run PySHACL in Rules Expansion mode. Same as `pyshacl_rules`.',
+    action='store_true',
+    dest='do_rules',
+    default=False,
 )
 parser.add_argument(
     '--server',
@@ -219,33 +254,43 @@ def main(prog: Union[str, None] = None) -> None:
 
         # http_main calls sys.exit(0) and never returns
         http_main()
+    if args.do_rules:
+        from pyshacl.cli_rules import main as rules_main
+
+        # rules_main calls sys.exit(0) and never returns
+        rules_main()
     if not args.data:
         # No datafile give, and not starting in server mode.
         sys.stderr.write('Input Error. No DataGraph file or endpoint supplied.\n')
         parser.print_usage(sys.stderr)
         sys.exit(1)
     validator_kwargs = {'debug': args.debug}
-    data_file = None
-    data_graph: Union[BufferedReader, str]
+    data_files: List[BufferedReader] = []
+    data_graphs: List[Union[BufferedReader, str]] = []
     if args.sparql_mode is not None and args.sparql_mode is True:
-        endpoint = str(args.data).strip()
+        if len(args.data) > 1:
+            sys.stderr.write("Input Error. SPARQL Endpoint mode only supports a single target.\n")
+            sys.exit(1)
+        endpoint = str(args.data[0]).strip()
         if not endpoint.lower().startswith("http:") and not endpoint.lower().startswith("https:"):
             sys.stderr.write("Input Error. SPARQL Endpoint must start with http:// or https://.\n")
             sys.exit(1)
-        data_graph = endpoint
+        data_graphs = [endpoint]
         validator_kwargs['sparql_mode'] = True
     else:
-        try:
-            data_file = open(args.data, 'rb')
-        except FileNotFoundError:
-            sys.stderr.write('Input Error. DataGraph file not found.\n')
-            sys.exit(1)
-        except PermissionError:
-            sys.stderr.write('Input Error. DataGraph file not readable.\n')
-            sys.exit(1)
-        else:
-            # NOTE: This cast is not necessary in Python >= 3.10.
-            data_graph = cast(BufferedReader, data_file)
+        for data_path in args.data:
+            try:
+                data_file = open(data_path, 'rb')
+            except FileNotFoundError:
+                sys.stderr.write('Input Error. DataGraph file not found.\n')
+                sys.exit(1)
+            except PermissionError:
+                sys.stderr.write('Input Error. DataGraph file not readable.\n')
+                sys.exit(1)
+            else:
+                data_files.append(data_file)
+                # NOTE: This cast is not necessary in Python >= 3.10.
+                data_graphs.append(cast(BufferedReader, data_file))
     if args.shacl is not None:
         validator_kwargs['shacl_graph'] = args.shacl
     if args.ont is not None:
@@ -262,6 +307,10 @@ def main(prog: Union[str, None] = None) -> None:
         validator_kwargs['advanced'] = True
     if args.js:
         validator_kwargs['js'] = True
+    if args.focus:
+        validator_kwargs['focus_nodes'] = [_f.strip() for _f in args.focus.split(',')]
+    if args.shape:
+        validator_kwargs['use_shapes'] = [_s.strip() for _s in args.shape.split(',')]
     if args.iterate_rules:
         if not args.advanced:
             sys.stderr.write("Iterate-Rules option only works when you enable Advanced Mode.\n")
@@ -273,6 +322,8 @@ def main(prog: Union[str, None] = None) -> None:
         validator_kwargs['allow_infos'] = True
     if args.allow_warnings:
         validator_kwargs['allow_warnings'] = True
+    if args.max_depth is not None:
+        validator_kwargs['max_validation_depth'] = args.max_depth
     if args.shacl_file_format:
         _f: str = args.shacl_file_format
         if _f != "auto":
@@ -285,11 +336,18 @@ def main(prog: Union[str, None] = None) -> None:
         _f = args.data_file_format
         if _f != "auto":
             validator_kwargs['data_graph_format'] = _f
+
     exit_code: Union[int, None] = None
     try:
-        is_conform, v_graph, v_text = validate(data_graph, **validator_kwargs)
-        if isinstance(v_graph, BaseException):
-            raise v_graph
+        if args.validate_each:
+            results = validate_each(data_graphs, **validator_kwargs)
+        else:
+            data_graph = data_graphs[0] if len(data_graphs) == 1 else data_graphs
+            if len(data_graphs) > 1:
+                validator_kwargs['multi_data_graphs_mode'] = "combine"
+            is_conform, v_graph, v_text = validate(data_graph, **validator_kwargs)
+            if isinstance(v_graph, BaseException):
+                raise v_graph
     except ValidationFailure as vf:
         args.output.write("Validator generated a Validation Failure result:\n")
         args.output.write(str(vf.message))
@@ -329,7 +387,7 @@ def main(prog: Union[str, None] = None) -> None:
         )
         exit_code = 2
     finally:
-        if data_file is not None:
+        for data_file in data_files:
             try:
                 data_file.close()
             except Exception as e:
@@ -337,24 +395,50 @@ def main(prog: Union[str, None] = None) -> None:
                 sys.stderr.write(str(e))
         if exit_code is not None:
             sys.exit(exit_code)
+    if args.validate_each:
+        all_conform = True
+        for source_key, (is_conform, v_graph, v_text) in results.items():
+            args.output.write(f"=== Validation result for {source_key} ===\n")
+            if isinstance(v_graph, BaseException):
+                if isinstance(v_graph, ValidationFailure):
+                    args.output.write("Validator generated a Validation Failure result:\n")
+                    args.output.write(str(v_graph.message))
+                    args.output.write("\n")
+                    all_conform = False
+                    continue
+                raise v_graph
+            write_validation_output(args, is_conform, v_graph, v_text)
+            args.output.write("\n")
+            if not is_conform:
+                all_conform = False
+        args.output.close()
+        sys.exit(0 if all_conform else 1)
+    write_validation_output(args, is_conform, v_graph, v_text)
+    args.output.close()
+    sys.exit(0 if is_conform else 1)
+
+
+def _col_widther(s, w):
+    """Split strings to a given width for table"""
+    s2 = []
+    i = 0
+    while i < len(s):
+        s2.append(s[i : i + w])
+        i += w
+    return '\n'.join(s2)
+
+
+def write_validation_output(args, is_conform: bool, v_graph, v_text: str) -> None:
     if args.format == 'human':
         args.output.write(v_text)
-    elif args.format == 'table':
+        return
+    if args.format == 'table':
         t1 = PrettyTable()
         t1.field_names = ["Conforms"]
         t1.align = "c"
         t1.add_row([is_conform])
         args.output.write(str(t1))
         args.output.write('\n\n')
-
-        def col_widther(s, w):
-            """Split strings to a given width for table"""
-            s2 = []
-            i = 0
-            while i < len(s):
-                s2.append(s[i : i + w])
-                i += w
-            return '\n'.join(s2)
 
         if not is_conform:
             from rdflib import Graph
@@ -368,7 +452,7 @@ def main(prog: Union[str, None] = None) -> None:
             for i, o in enumerate(v_graph.objects(None, SH.result)):
                 r = {}
                 for o2 in v_graph.predicate_objects(o):
-                    r[o2[0]] = str(col_widther(str(o2[1]).replace(f'{SH}', ''), 25))  # max col width 30 chars
+                    r[o2[0]] = str(_col_widther(str(o2[1]).replace(f'{SH}', ''), 25))  # max col width 30 chars
                 t2.add_row(
                     [
                         i + 1,
@@ -383,12 +467,10 @@ def main(prog: Union[str, None] = None) -> None:
                 )
                 t2.add_row(['', '', '', '', '', '', '', ''])
             args.output.write(str(t2))
-    else:
-        if isinstance(v_graph, bytes):
-            v_graph = v_graph.decode('utf-8')
-        args.output.write(v_graph)
-    args.output.close()
-    sys.exit(0 if is_conform else 1)
+        return
+    if isinstance(v_graph, bytes):
+        v_graph = v_graph.decode('utf-8')
+    args.output.write(v_graph)
 
 
 if __name__ == "__main__":

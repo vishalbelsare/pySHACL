@@ -5,9 +5,9 @@ import logging
 import sys
 from decimal import Decimal
 from time import perf_counter
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Type, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Set, Type, Union
 
-from rdflib import BNode, Literal, URIRef
+from rdflib import BNode, IdentifiedNode, Literal, URIRef
 
 from .consts import (
     RDF_type,
@@ -130,6 +130,8 @@ class Shape(object):
         self._advanced = bool(val)
 
     def get_other_shape(self, shape_node):
+        if self.sg.is_filtered_out_shape(shape_node):
+            return None
         try:
             return self.sg.lookup_shape_from_node(shape_node)
         except (KeyError, AttributeError):
@@ -385,7 +387,7 @@ class Shape(object):
         if debug:
             t2 = perf_counter()
             elapsed = t2 - t1
-            self.logger.debug(f"Milliseconds to find focus nodes: {elapsed*1000.0:.3f}ms")
+            self.logger.debug(f"Milliseconds to find focus nodes: {elapsed * 1000.0:.3f}ms")
         return found_node_targets
 
     @classmethod
@@ -534,7 +536,7 @@ class Shape(object):
         if debug:
             t2 = perf_counter()
             elapsed = t2 - t1
-            self.logger.debug(f"Milliseconds to find focus nodes: {elapsed*1000.0:.3f}ms")
+            self.logger.debug(f"Milliseconds to find focus nodes: {elapsed * 1000.0:.3f}ms")
         return found_node_targets
 
     def value_nodes(self, target_graph, focus, sparql_mode: bool = False, debug: bool = False):
@@ -571,7 +573,7 @@ class Shape(object):
             else:
                 prefixes = dict(target_graph.namespace_manager.namespaces())
                 sparql_path = shacl_path_to_sparql_path(self.sg, path_val, prefixes=prefixes)
-            values_query = f"SELECT {' '.join(f'?v{i}' for i,_ in enumerate(focus))} WHERE {{\n"
+            values_query = f"SELECT {' '.join(f'?v{i}' for i, _ in enumerate(focus))} WHERE {{\n"
             init_bindings = {}
             for i, f in enumerate(focus):
                 focus_dict[f] = set()
@@ -598,7 +600,7 @@ class Shape(object):
         if debug:
             t2 = perf_counter()
             elapsed = t2 - t1
-            self.logger.debug(f"Milliseconds to find value nodes for focus nodes: {elapsed*1000.0:.3f}ms")
+            self.logger.debug(f"Milliseconds to find value nodes for focus nodes: {elapsed * 1000.0:.3f}ms")
         return focus_dict
 
     def find_custom_constraints(self):
@@ -622,10 +624,8 @@ class Shape(object):
         target_graph: GraphLike,
         focus: Optional[
             Union[
-                Tuple[Union[URIRef, BNode]],
-                List[Union[URIRef, BNode]],
-                Set[Union[URIRef, BNode]],
-                Union[URIRef, BNode],
+                Sequence[RDFNode],
+                RDFNode,
             ]
         ] = None,
         _evaluation_path: Optional[List] = None,
@@ -634,33 +634,54 @@ class Shape(object):
             if executor.debug:
                 self.logger.debug(f"Skipping shape because it is deactivated: {str(self)}")
             return True, []
+        focus_list: Sequence[RDFNode]
         if focus is not None:
             lh_shape = False
             rh_shape = True
             self.logger.debug(f"Running evaluation of Shape {str(self)}")
-            if not isinstance(focus, (tuple, list, set)):
-                focus = [focus]
-            self.logger.debug(f"Shape was passed {len(focus)} Focus Node/s to evaluate.")
-            if len(focus) < 1:
-                return True, []
+            # Passed in Focus node _can_ be a Literal, happens in PropertyShapes
+            # when the path resolves to a literal or set of Literals
+            if isinstance(focus, (IdentifiedNode, Literal)):
+                focus_list = [focus]
+            else:
+                focus_list = list(focus)
+            self.logger.debug(f"Shape was passed {len(focus_list)} Focus Node/s to evaluate.")
         else:
             lh_shape = True
             rh_shape = False
             self.logger.debug(f"Checking if Shape {str(self)} defines its own targets.")
             self.logger.debug("Identifying targets to find focus nodes.")
             if executor.sparql_mode:
-                focus = self.focus_nodes_sparql(target_graph, debug=executor.debug)
+                focus_set = self.focus_nodes_sparql(target_graph, debug=executor.debug)
             else:
-                focus = self.focus_nodes(target_graph, debug=executor.debug)
-            self.logger.debug(f"Found {len(focus)} Focus Nodes to evaluate.")
-            if len(focus) < 1:
-                # It's possible for shapes to have _no_ focus nodes
-                # (they are called in other ways)
-                if executor.debug:
-                    self.logger.debug(f"Skipping shape {str(self)} because it found no focus nodes.")
+                focus_set = self.focus_nodes(target_graph, debug=executor.debug)
+            focus_list = list(focus_set)
+            self.logger.debug(f"Found {len(focus_list)} Focus Nodes to evaluate.")
+
+        if len(focus_list) < 1:
+            # It's possible for shapes to have _no_ focus nodes
+            # (they are called in other ways)
+            if executor.debug:
+                self.logger.debug(f"Skipping shape {str(self)} because it found no focus nodes.")
+            return True, []
+        else:
+            self.logger.debug(f"Running evaluation of Shape {str(self)}")
+
+        if executor.focus_nodes is not None and len(executor.focus_nodes) > 0:
+            filtered_focus_nodes: List[Union[URIRef]] = []
+            for _fo in focus_list:  # type: RDFNode
+                if isinstance(_fo, URIRef) and _fo in executor.focus_nodes:
+                    filtered_focus_nodes.append(_fo)
+            len_orig_focus = len(focus_list)
+            len_filtered_focus = len(filtered_focus_nodes)
+            if len_filtered_focus < 1:
+                self.logger.debug(f"Skipping shape {str(self)} because specified focus nodes are not targeted.")
                 return True, []
-            else:
-                self.logger.debug(f"Running evaluation of Shape {str(self)}")
+            elif len_filtered_focus != len_orig_focus:
+                self.logger.debug(
+                    f"Filtered focus nodes based on focus_nodes option. Only {len_filtered_focus} of {len_orig_focus} focus nodes remain."
+                )
+            focus_list = filtered_focus_nodes
         t1 = ct1 = 0.0  # prevent warnings about use-before-assign
         collect_stats = bool(executor.debug)
 
@@ -703,7 +724,7 @@ class Shape(object):
         parameters = (p for p, v in self.sg.predicate_objects(self.node) if p in search_parameters)
         reports = []
         focus_value_nodes = self.value_nodes(
-            target_graph, focus, sparql_mode=executor.sparql_mode, debug=executor.debug
+            target_graph, focus_list, sparql_mode=executor.sparql_mode, debug=executor.debug
         )
         filter_reports: bool = False
         allow_conform: bool = False
@@ -796,6 +817,6 @@ class Shape(object):
         if collect_stats:
             t2 = perf_counter()
             elapsed = t2 - t1
-            self.logger.debug(f"Milliseconds to evaluate shape {str(self)}: {elapsed*1000.0:.3f}ms")
+            self.logger.debug(f"Milliseconds to evaluate shape {str(self)}: {elapsed * 1000.0:.3f}ms")
         # print(_evaluation_path, "Passes" if not non_conformant else "Fails")
         return (not non_conformant), reports

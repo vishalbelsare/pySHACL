@@ -2,8 +2,9 @@
 """
 https://www.w3.org/TR/shacl/#core-components-shape
 """
+
 from textwrap import indent
-from typing import Dict, List
+from typing import Dict, List, Optional
 from warnings import warn
 
 import rdflib
@@ -26,6 +27,7 @@ from pyshacl.errors import (
 )
 from pyshacl.pytypes import GraphLike, SHACLExecutor
 from pyshacl.rdfutil import stringify_node
+from pyshacl.shape import Shape
 
 SH_QualifiedValueCountConstraintComponent = SH.QualifiedValueConstraintComponent
 SH_QualifiedMaxCountConstraintComponent = SH.QualifiedMaxCountConstraintComponent
@@ -50,7 +52,7 @@ class PropertyConstraintComponent(ConstraintComponent):
     shape_expecting = True
     list_taking = False
 
-    def __init__(self, shape):
+    def __init__(self, shape: Shape) -> None:
         super(PropertyConstraintComponent, self).__init__(shape)
         property_shapes = list(self.shape.objects(SH_property))
         if len(property_shapes) < 1:
@@ -61,11 +63,11 @@ class PropertyConstraintComponent(ConstraintComponent):
         self.property_shapes = property_shapes
 
     @classmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[rdflib.URIRef]:
         return [SH_property]
 
     @classmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         return "PropertyConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[rdflib.Literal]:
@@ -94,6 +96,8 @@ class PropertyConstraintComponent(ConstraintComponent):
         potentially_recursive = self.recursion_triggers(_evaluation_path)
 
         for p_shape in self.property_shapes:
+            if self.shape.sg.is_filtered_out_shape(p_shape):
+                continue
             _nc, _r = self._evaluate_property_shape(
                 executor, p_shape, target_graph, focus_value_nodes, potentially_recursive, _evaluation_path
             )
@@ -106,16 +110,16 @@ class PropertyConstraintComponent(ConstraintComponent):
     ):
         _reports = []
         _non_conformant = False
-        prop_shape = self.shape.get_other_shape(prop_shape)
-        if potentially_recursive and prop_shape in potentially_recursive:
+        found_prop_shape = self.shape.get_other_shape(prop_shape)
+        if potentially_recursive and found_prop_shape in potentially_recursive:
             warn(ShapeRecursionWarning(_evaluation_path))
             return _non_conformant, _reports
-        if not prop_shape:
+        if not found_prop_shape:
             raise ReportableRuntimeError(
                 f"SHACL PropertyShape not found: The shape referenced by sh:property does not exist. "
                 f"Please check if the shape '{prop_shape}' is defined."
             )
-        elif not prop_shape.is_property_shape:
+        elif not found_prop_shape.is_property_shape:
             raise ReportableRuntimeError(
                 f"'{prop_shape}' exists but is not a well-formed SHACL PropertyShape. "
                 f"Ensure it has the correct type (sh:PropertyShape) and all required properties."
@@ -123,7 +127,7 @@ class PropertyConstraintComponent(ConstraintComponent):
 
         for f, value_nodes in focus_value_nodes.items():
             for v in value_nodes:
-                _is_conform, _r = prop_shape.validate(
+                _is_conform, _r = found_prop_shape.validate(
                     executor, target_graph, focus=v, _evaluation_path=_evaluation_path[:]
                 )
                 _non_conformant = _non_conformant or (not _is_conform)
@@ -144,7 +148,7 @@ class NodeConstraintComponent(ConstraintComponent):
     shape_expecting = True
     list_taking = False
 
-    def __init__(self, shape):
+    def __init__(self, shape: Shape) -> None:
         super(NodeConstraintComponent, self).__init__(shape)
         node_shapes = list(self.shape.objects(SH_node))
         if len(node_shapes) < 1:
@@ -155,11 +159,11 @@ class NodeConstraintComponent(ConstraintComponent):
         self.node_shapes = node_shapes
 
     @classmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[rdflib.URIRef]:
         return [SH_node]
 
     @classmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         return "NodeConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[rdflib.Literal]:
@@ -167,7 +171,7 @@ class NodeConstraintComponent(ConstraintComponent):
             m = "Value does not conform to Shape {}.".format(stringify_node(self.shape.sg.graph, self.node_shapes[0]))
         else:
             rules = "', '".join(stringify_node(self.shape.sg.graph, c) for c in self.node_shapes)
-            m = "Value does not conform to every Shape in ('{}').".format(rules)
+            m = "Value must conform to every Shape in ('{}').".format(rules)
         m += " See details for more information."
         return [rdflib.Literal(m)]
 
@@ -193,6 +197,8 @@ class NodeConstraintComponent(ConstraintComponent):
         potentially_recursive = self.recursion_triggers(_evaluation_path)
 
         for n_shape in self.node_shapes:
+            if self.shape.sg.is_filtered_out_shape(n_shape):
+                continue
             _nc, _r = self._evaluate_node_shape(
                 executor, n_shape, target_graph, focus_value_nodes, potentially_recursive, _evaluation_path
             )
@@ -205,17 +211,20 @@ class NodeConstraintComponent(ConstraintComponent):
     ):
         _reports = []
         _non_conformant = False
-        node_shape = self.shape.get_other_shape(node_shape)
-        if potentially_recursive and node_shape in potentially_recursive:
+        found_node_shape = self.shape.get_other_shape(node_shape)
+        if potentially_recursive and found_node_shape in potentially_recursive:
             warn(ShapeRecursionWarning(_evaluation_path))
             return _non_conformant, _reports
-        if not node_shape or node_shape.is_property_shape:
+        if not found_node_shape:
             raise ReportableRuntimeError(
-                "Shape pointed to by sh:node does not exist or is not a well-formed SHACL NodeShape."
+                f"SHACL Shape not found: The shape referenced by sh:node does not exist. "
+                f"Please check if the shape '{node_shape}' is defined."
             )
+        elif found_node_shape.is_property_shape:
+            raise ReportableRuntimeError("Shape pointed to by sh:node is not a well-formed SHACL NodeShape.")
         for f, value_nodes in focus_value_nodes.items():
             for v in value_nodes:
-                _is_conform, _r = node_shape.validate(
+                _is_conform, _r = found_node_shape.validate(
                     executor, target_graph, focus=v, _evaluation_path=_evaluation_path[:]
                 )
                 # Create a failure for this constraint component if any failures exist
@@ -251,7 +260,7 @@ class QualifiedValueShapeConstraintComponent(ConstraintComponent):
     shape_expecting = True
     list_taking = False
 
-    def __init__(self, shape):
+    def __init__(self, shape: Shape) -> None:
         super(QualifiedValueShapeConstraintComponent, self).__init__(shape)
         if not shape.is_property_shape:
             # Note, this no longer throws an error, this constraint is simply ignored on NodeShapes.
@@ -266,39 +275,42 @@ class QualifiedValueShapeConstraintComponent(ConstraintComponent):
                 "https://www.w3.org/TR/shacl/#QualifiedValueShapeConstraintComponent",
             )
         self.value_shapes = value_shapes
-        min_count = set(self.shape.objects(SH_qualifiedMinCount))
-        if len(min_count) < 1:
+        min_count: Optional[int]
+        min_counts = set(self.shape.objects(SH_qualifiedMinCount))
+        if len(min_counts) < 1:
             min_count = None
-        elif len(min_count) > 1:
+        elif len(min_counts) > 1:
             raise ConstraintLoadError(
                 "QualifiedMinCountConstraintComponent must have at most one sh:qualifiedMinCount predicate.",
                 "https://www.w3.org/TR/shacl/#QualifiedValueShapeConstraintComponent",
             )
         else:
-            min_count = next(iter(min_count))
-            if not isinstance(min_count, rdflib.Literal) or not isinstance(min_count.value, int):
+            min_count_literal = next(iter(min_counts))
+            if not isinstance(min_count_literal, rdflib.Literal) or not isinstance(min_count_literal.value, int):
                 raise ConstraintLoadError(
                     "QualifiedMinCountConstraintComponent sh:qualifiedMinCount must be a Literal with Int.",
                     "https://www.w3.org/TR/shacl/#QualifiedValueShapeConstraintComponent",
                 )
-            min_count = min_count.value
+            min_count = min_count_literal.value
 
-        max_count = set(self.shape.objects(SH_qualifiedMaxCount))
-        if len(max_count) < 1:
+        max_count: Optional[int]
+        max_counts = set(self.shape.objects(SH_qualifiedMaxCount))
+        if len(max_counts) < 1:
             max_count = None
-        elif len(max_count) > 1:
+        elif len(max_counts) > 1:
             raise ConstraintLoadError(
                 "QualifiedMaxCountConstraintComponent must have at most one sh:qualifiedMaxCount predicate.",
                 "https://www.w3.org/TR/shacl/#QualifiedValueShapeConstraintComponent",
             )
         else:
-            max_count = next(iter(max_count))
-            if not isinstance(max_count, rdflib.Literal) or not isinstance(max_count.value, int):
+            max_count_literal = next(iter(max_counts))
+            if not isinstance(max_count_literal, rdflib.Literal) or not isinstance(max_count_literal.value, int):
                 raise ConstraintLoadError(
                     "QualifiedMaxCountConstraintComponent sh:qualifiedMaxCount must be a Literal with Int.",
                     "https://www.w3.org/TR/shacl/#QualifiedValueShapeConstraintComponent",
                 )
-            max_count = max_count.value
+            max_count = max_count_literal.value
+
         if min_count is None and max_count is None:
             raise ConstraintLoadError(
                 "QualifiedValueShapeConstraintComponent must have at lease one sh:qualifiedMinCount or "
@@ -316,11 +328,11 @@ class QualifiedValueShapeConstraintComponent(ConstraintComponent):
         self.is_disjoint = is_disjoint
 
     @classmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[rdflib.URIRef]:
         return [SH_qualifiedValueShape, SH_qualifiedMinCount, SH_qualifiedValueShapesDisjoint, SH_qualifiedMaxCount]
 
     @classmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         return "QualifiedValueShapeConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[rdflib.Literal]:
@@ -358,6 +370,8 @@ class QualifiedValueShapeConstraintComponent(ConstraintComponent):
         potentially_recursive = self.recursion_triggers(_evaluation_path)
 
         for v_shape in self.value_shapes:
+            if self.shape.sg.is_filtered_out_shape(v_shape):
+                continue
             _nc, _r = self._evaluate_value_shape(
                 executor, v_shape, target_graph, focus_value_nodes, potentially_recursive, _evaluation_path
             )
@@ -393,6 +407,7 @@ class QualifiedValueShapeConstraintComponent(ConstraintComponent):
                         sibling_shapes.add(sibling)
 
             sibling_shapes = set(self.shape.get_other_shape(s) for s in sibling_shapes)
+            sibling_shapes = {s for s in sibling_shapes if s is not None}
         else:
             sibling_shapes = set()
         upstream_reports = []

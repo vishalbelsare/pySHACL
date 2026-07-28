@@ -2,6 +2,7 @@
 """
 https://www.w3.org/TR/shacl/#core-components-logical
 """
+
 from typing import Dict, List
 from warnings import warn
 
@@ -12,6 +13,7 @@ from pyshacl.consts import SH
 from pyshacl.errors import ConstraintLoadError, ReportableRuntimeError, ShapeRecursionWarning, ValidationFailure
 from pyshacl.pytypes import GraphLike, SHACLExecutor
 from pyshacl.rdfutil import stringify_node
+from pyshacl.shape import Shape
 
 SH_not = SH["not"]
 SH_and = SH["and"]
@@ -37,7 +39,7 @@ class NotConstraintComponent(ConstraintComponent):
     shape_expecting = True
     list_taking = False
 
-    def __init__(self, shape):
+    def __init__(self, shape: Shape) -> None:
         super(NotConstraintComponent, self).__init__(shape)
         not_list = list(self.shape.objects(SH_not))
         if len(not_list) < 1:
@@ -48,19 +50,24 @@ class NotConstraintComponent(ConstraintComponent):
         self.not_list = not_list
 
     @classmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[rdflib.URIRef]:
         return [SH_not]
 
     @classmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         return "NotConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[rdflib.Literal]:
+        try:
+            value_node_str = stringify_node(datagraph, value_node)
+        except (LookupError, ValueError):
+            # value node doesn't exist in the datagraph.
+            value_node_str = str(value_node)
         if len(self.not_list) == 1:
-            m = f"Node {stringify_node(datagraph, value_node)} conforms to shape {stringify_node(self.shape.sg.graph, self.not_list[0])}"
+            m = f"Node {value_node_str} must not conform to shape {stringify_node(self.shape.sg.graph, self.not_list[0])}"
         else:
             nots_list = " , ".join(stringify_node(self.shape.sg.graph, n) for n in self.not_list)
-            m = f"Node {stringify_node(datagraph, value_node)} conforms to one or more shapes in {nots_list}"
+            m = f"Node {value_node_str} must not conform to any shapes in {nots_list}"
         return [rdflib.Literal(m)]
 
     def evaluate(self, executor: SHACLExecutor, datagraph: GraphLike, focus_value_nodes: Dict, _evaluation_path: List):
@@ -75,6 +82,8 @@ class NotConstraintComponent(ConstraintComponent):
         potentially_recursive = self.recursion_triggers(_evaluation_path)
 
         for not_c in self.not_list:
+            if self.shape.sg.is_filtered_out_shape(not_c):
+                continue
             _nc, _r = self._evaluate_not_constraint(
                 executor, not_c, datagraph, focus_value_nodes, potentially_recursive, _evaluation_path
             )
@@ -94,19 +103,20 @@ class NotConstraintComponent(ConstraintComponent):
         """
         _reports = []
         _non_conformant = False
-        not_shape = self.shape.get_other_shape(not_c)
-        if not not_shape:
+        found_not_shape = self.shape.get_other_shape(not_c)
+        if not found_not_shape:
             raise ReportableRuntimeError(
                 "Shape pointed to by sh:not does not exist or is not a well-formed SHACL Shape."
+                f"Please check if the shape '{not_c}' is defined."
             )
-        if potentially_recursive and not_shape in potentially_recursive:
+        if potentially_recursive and found_not_shape in potentially_recursive:
             warn(ShapeRecursionWarning(_evaluation_path))
             return _non_conformant, _reports
         upstream_reports = []
         for f, value_nodes in focus_value_nodes.items():
             for v in value_nodes:
                 try:
-                    _is_conform, _r = not_shape.validate(
+                    _is_conform, _r = found_not_shape.validate(
                         executor, datagraph, focus=v, _evaluation_path=_evaluation_path[:]
                     )
                 except ValidationFailure as e:
@@ -140,7 +150,7 @@ class AndConstraintComponent(ConstraintComponent):
     shape_expecting = True
     list_taking = True
 
-    def __init__(self, shape):
+    def __init__(self, shape: Shape) -> None:
         super(AndConstraintComponent, self).__init__(shape)
         and_list = list(self.shape.objects(SH_and))
         if len(and_list) < 1:
@@ -151,18 +161,32 @@ class AndConstraintComponent(ConstraintComponent):
         self.and_list = and_list
 
     @classmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[rdflib.URIRef]:
         return [SH_and]
 
     @classmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         return "AndConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[rdflib.Literal]:
-        and_list = " , ".join(
-            stringify_node(self.shape.sg.graph, a_c) for a in self.and_list for a_c in self.shape.sg.graph.items(a)
-        )
-        m = "Node {} does not conform to all shapes in {}".format(stringify_node(datagraph, value_node), and_list)
+        if len(self.and_list) < 2:
+            and_node_string = " , ".join(
+                stringify_node(self.shape.sg.graph, a_c) for a_c in self.shape.sg.graph.items(self.and_list[0])
+            )
+        else:
+            and_node_strings = []
+            for a in self.and_list:
+                and_node_string1 = " , ".join(
+                    stringify_node(self.shape.sg.graph, a_c) for a_c in self.shape.sg.graph.items(a)
+                )
+                and_node_strings.append(f"({and_node_string1})")
+            and_node_string = " and ".join(and_node_strings)
+        try:
+            value_node_str = stringify_node(datagraph, value_node)
+        except (LookupError, ValueError):
+            # value node doesn't exist in the datagraph.
+            value_node_str = str(value_node)
+        m = f"Node {value_node_str} must conform to all shapes in {and_node_string}"
         return [rdflib.Literal(m)]
 
     def evaluate(
@@ -192,12 +216,17 @@ class AndConstraintComponent(ConstraintComponent):
             raise ReportableRuntimeError("The list associated with sh:and is not a valid RDF list.")
         and_shapes = set()
         for a in and_list:
+            if self.shape.sg.is_filtered_out_shape(a):
+                continue
             and_shape = self.shape.get_other_shape(a)
             if not and_shape:
                 raise ReportableRuntimeError(
                     "Shape pointed to by sh:and does not exist or is not a well-formed SHACL Shape."
                 )
             and_shapes.add(and_shape)
+        if not and_shapes:
+            # All filtered out, no reports to send
+            return _non_conformant, _reports
         upstream_reports = []
         for f, value_nodes in focus_value_nodes.items():
             for v in value_nodes:
@@ -236,7 +265,7 @@ class OrConstraintComponent(ConstraintComponent):
     shape_expecting = True
     list_taking = True
 
-    def __init__(self, shape):
+    def __init__(self, shape: Shape) -> None:
         super(OrConstraintComponent, self).__init__(shape)
         or_list = list(self.shape.objects(SH_or))
         if len(or_list) < 1:
@@ -247,20 +276,32 @@ class OrConstraintComponent(ConstraintComponent):
         self.or_list = or_list
 
     @classmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[rdflib.URIRef]:
         return [SH_or]
 
     @classmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         return "OrConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[rdflib.Literal]:
-        or_list = " , ".join(
-            stringify_node(self.shape.sg.graph, o_c) for o in self.or_list for o_c in self.shape.sg.graph.items(o)
-        )
-        m = "Node {} does not conform to one or more shapes in {}".format(
-            stringify_node(datagraph, value_node), or_list
-        )
+        if len(self.or_list) < 2:
+            or_node_string = " , ".join(
+                stringify_node(self.shape.sg.graph, o_c) for o_c in self.shape.sg.graph.items(self.or_list[0])
+            )
+        else:
+            or_node_strings = []
+            for a in self.or_list:
+                or_node_string1 = " , ".join(
+                    stringify_node(self.shape.sg.graph, a_c) for a_c in self.shape.sg.graph.items(a)
+                )
+                or_node_strings.append(f"({or_node_string1})")
+            or_node_string = " and ".join(or_node_strings)
+        try:
+            value_node_str = stringify_node(datagraph, value_node)
+        except (LookupError, ValueError):
+            # value node doesn't exist in the datagraph.
+            value_node_str = str(value_node)
+        m = f"Node {value_node_str} must conform to one or more shapes in {or_node_string}"
         return [rdflib.Literal(m)]
 
     def evaluate(
@@ -290,12 +331,16 @@ class OrConstraintComponent(ConstraintComponent):
             raise ReportableRuntimeError("The list associated with sh:or is not a valid RDF list.")
         or_shapes = set()
         for o in or_list:
+            if self.shape.sg.is_filtered_out_shape(o):
+                continue
             or_shape = self.shape.get_other_shape(o)
             if not or_shape:
                 raise ReportableRuntimeError(
                     "Shape pointed to by sh:or does not exist or is not a well-formed SHACL Shape."
                 )
             or_shapes.add(or_shape)
+        if not or_shapes:
+            return _non_conformant, _reports
         upstream_reports = []
         for f, value_nodes in focus_value_nodes.items():
             for v in value_nodes:
@@ -334,7 +379,7 @@ class XoneConstraintComponent(ConstraintComponent):
     shape_expecting = True
     list_taking = True
 
-    def __init__(self, shape):
+    def __init__(self, shape: Shape) -> None:
         super(XoneConstraintComponent, self).__init__(shape)
         xone_nodes = list(self.shape.objects(SH_xone))
         if len(xone_nodes) < 1:
@@ -345,20 +390,32 @@ class XoneConstraintComponent(ConstraintComponent):
         self.xone_nodes = xone_nodes
 
     @classmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[rdflib.URIRef]:
         return [SH_xone]
 
     @classmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         return "XoneConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[rdflib.Literal]:
-        xone_list = " , ".join(
-            stringify_node(self.shape.sg.graph, a_c) for a in self.xone_nodes for a_c in self.shape.sg.graph.items(a)
-        )
-        m = "Node {} does not conform to exactly one shape in {}".format(
-            stringify_node(datagraph, value_node), xone_list
-        )
+        if len(self.xone_nodes) < 2:
+            xone_node_string = " , ".join(
+                stringify_node(self.shape.sg.graph, a_c) for a_c in self.shape.sg.graph.items(self.xone_nodes[0])
+            )
+        else:
+            xone_node_strings = []
+            for a in self.xone_nodes:
+                xone_node_string1 = " , ".join(
+                    stringify_node(self.shape.sg.graph, a_c) for a_c in self.shape.sg.graph.items(a)
+                )
+                xone_node_strings.append(f"({xone_node_string1})")
+            xone_node_string = " and ".join(xone_node_strings)
+        try:
+            value_node_str = stringify_node(datagraph, value_node)
+        except (LookupError, ValueError):
+            # value node doesn't exist in the datagraph.
+            value_node_str = str(value_node)
+        m = f"Node {value_node_str} must conform to exactly one shape in {xone_node_string}"
         return [rdflib.Literal(m)]
 
     def evaluate(
@@ -390,12 +447,16 @@ class XoneConstraintComponent(ConstraintComponent):
             raise ReportableRuntimeError("The list associated with sh:xone is not a valid RDF list.")
         xone_shapes = list()
         for x in xone_list:
+            if self.shape.sg.is_filtered_out_shape(x):
+                continue
             xone_shape = self.shape.get_other_shape(x)
             if not xone_shape:
                 raise ReportableRuntimeError(
                     "Shape pointed to by sh:xone does not exist or is not a well-formed SHACL Shape."
                 )
             xone_shapes.append(xone_shape)
+        if not xone_shapes:
+            return _non_conformant, _reports
         upstream_reports = []
         for f, value_nodes in focus_value_nodes.items():
             for v in value_nodes:

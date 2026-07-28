@@ -2,6 +2,7 @@
 """
 https://www.w3.org/TR/shacl/#sparql-constraints
 """
+
 import re
 
 import rdflib
@@ -32,7 +33,11 @@ class SPARQLQueryHelper(object):
     bind_sg_regex = re.compile(r"([\s{}()])[\$\?]shapesGraph", flags=re.M)
     bind_cs_regex = re.compile(r"([\s{}()])[\$\?]currentShape", flags=re.M)
     has_minus_regex = re.compile(r"^(?:[^#]*|M)(?!#)#?[^\?\$\#]M?INUS[\s\{]", flags=re.M | re.I)
-    has_values_regex = re.compile(r"^(?:[^#]*|V)(?!#)#?[^\?\$\#]V?ALUES[\s\{]", flags=re.M | re.I)
+    # Match keyword VALUES without catching predicate names like ex:allowedValues
+    # Supports VALUES(?x), VALUES ?x, and VALUES { ... }
+    has_values_regex = re.compile(
+        r"^(?!\s*#).*?(?<![\w\-\:])VALUES\b(?:\s*(?:\(|[\?\$]\w+|\{|\w|\s))", flags=re.M | re.I
+    )
     has_service_regex = re.compile(r"^(?:[^#]*|S)(?!#)#?[^\?\$\#]S?ERVICE[\s\<]", flags=re.M | re.I)
     has_nested_select_regex = re.compile(
         r"SELECT[\s\(\)\$\?\a-z]*\{[^\}]*SELECT\s+((?:(?:[\?\$]\w+\s+)|(?:\*\s+))+)", flags=re.M | re.I
@@ -124,9 +129,13 @@ class SPARQLQueryHelper(object):
         prefixes_vals = set(sg.objects(self.node, SH_prefixes))
         if len(prefixes_vals) < 1:
             return
-        named_graph = sg.identifier
-        if named_graph:
-            ng_declares = set(sg.objects(named_graph, SH_declare))
+        if isinstance(sg, rdflib.Dataset):
+            default_graph = sg.default_graph
+            g_name = default_graph.identifier
+        else:
+            g_name = sg.identifier
+        if g_name:
+            ng_declares = set(sg.objects(g_name, SH_declare))
         else:
             ng_declares = set()
         onts = set(sg.subjects(RDF_type, OWL_Ontology))

@@ -2,6 +2,7 @@
 """
 https://www.w3.org/TR/shacl/#core-components-property-pairs
 """
+
 from typing import Dict, List
 
 import rdflib
@@ -12,6 +13,7 @@ from pyshacl.errors import ConstraintLoadError, ReportableRuntimeError
 from pyshacl.helper.path_helper import shacl_path_to_sparql_path
 from pyshacl.pytypes import GraphLike, SHACLExecutor
 from pyshacl.rdfutil import stringify_node
+from pyshacl.shape import Shape
 
 SH_equals = SH.equals
 SH_disjoint = SH.disjoint
@@ -35,7 +37,7 @@ class EqualsConstraintComponent(ConstraintComponent):
 
     shacl_constraint_component = SH_EqualsConstraintComponent
 
-    def __init__(self, shape):
+    def __init__(self, shape: Shape) -> None:
         super(EqualsConstraintComponent, self).__init__(shape)
         property_compare_set = set(self.shape.objects(SH_equals))
         if len(property_compare_set) < 1:
@@ -46,11 +48,11 @@ class EqualsConstraintComponent(ConstraintComponent):
         self.property_compare_set = property_compare_set
 
     @classmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[rdflib.URIRef]:
         return [SH_equals]
 
     @classmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         return "EqualsConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[rdflib.Literal]:
@@ -93,7 +95,7 @@ class EqualsConstraintComponent(ConstraintComponent):
         non_conformant = False
         prefixes = dict(target_graph.namespaces())
         eq_path = shacl_path_to_sparql_path(self.shape.sg, eq, prefixes=prefixes)
-        eq_lookup_query = f"SELECT DISTINCT {' '.join(f'?v{i}' for i,_ in enumerate(f_v_dict))} WHERE {{\n"
+        eq_lookup_query = f"SELECT DISTINCT {' '.join(f'?v{i}' for i, _ in enumerate(f_v_dict))} WHERE {{\n"
         init_bindings = {}
         f_eq_results = {}
         for i, f in enumerate(f_v_dict.keys()):
@@ -162,7 +164,7 @@ class DisjointConstraintComponent(ConstraintComponent):
 
     shacl_constraint_component = SH_DisjointConstraintComponent
 
-    def __init__(self, shape):
+    def __init__(self, shape: Shape) -> None:
         super(DisjointConstraintComponent, self).__init__(shape)
         property_compare_set = set(self.shape.objects(SH_disjoint))
         if len(property_compare_set) < 1:
@@ -173,11 +175,11 @@ class DisjointConstraintComponent(ConstraintComponent):
         self.property_compare_set = property_compare_set
 
     @classmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[rdflib.URIRef]:
         return [SH_disjoint]
 
     @classmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         return "DisjointConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[rdflib.Literal]:
@@ -220,7 +222,7 @@ class DisjointConstraintComponent(ConstraintComponent):
         non_conformant = False
         prefixes = dict(target_graph.namespaces())
         dj_path = shacl_path_to_sparql_path(self.shape.sg, dj, prefixes=prefixes)
-        dj_lookup_query = f"SELECT DISTINCT {' '.join(f'?v{i}' for i,_ in enumerate(f_v_dict))} WHERE {{\n"
+        dj_lookup_query = f"SELECT DISTINCT {' '.join(f'?v{i}' for i, _ in enumerate(f_v_dict))} WHERE {{\n"
         init_bindings = {}
         f_dj_results = {}
         for i, f in enumerate(f_v_dict.keys()):
@@ -282,7 +284,7 @@ class LessThanConstraintComponent(ConstraintComponent):
 
     shacl_constraint_component = SH_LessThanConstraintComponent
 
-    def __init__(self, shape):
+    def __init__(self, shape: Shape) -> None:
         super(LessThanConstraintComponent, self).__init__(shape)
         property_compare_set = set(self.shape.objects(SH_lessThan))
         if len(property_compare_set) < 1:
@@ -298,11 +300,11 @@ class LessThanConstraintComponent(ConstraintComponent):
         self.property_compare_set = property_compare_set
 
     @classmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[rdflib.URIRef]:
         return [SH_lessThan]
 
     @classmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         return "LessThanConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[rdflib.Literal]:
@@ -382,7 +384,7 @@ class LessThanConstraintComponent(ConstraintComponent):
         non_conformant = False
         prefixes = dict(target_graph.namespaces())
         lt_path = shacl_path_to_sparql_path(self.shape.sg, lt, prefixes=prefixes)
-        lt_lookup_query = f"SELECT DISTINCT {' '.join(f'?v{i}' for i,_ in enumerate(f_v_dict))} WHERE {{\n"
+        lt_lookup_query = f"SELECT DISTINCT {' '.join(f'?v{i}' for i, _ in enumerate(f_v_dict))} WHERE {{\n"
         init_bindings = {}
         f_lt_results = {}
         for i, f in enumerate(f_v_dict.keys()):
@@ -433,7 +435,7 @@ class LessThanOrEqualsConstraintComponent(ConstraintComponent):
 
     shacl_constraint_component = SH_LessThanOrEqualsConstraintComponent
 
-    def __init__(self, shape):
+    def __init__(self, shape: Shape) -> None:
         super(LessThanOrEqualsConstraintComponent, self).__init__(shape)
         property_compare_set = set(self.shape.objects(SH_lessThanOrEquals))
         if len(property_compare_set) < 1:
@@ -449,11 +451,11 @@ class LessThanOrEqualsConstraintComponent(ConstraintComponent):
         self.property_compare_set = property_compare_set
 
     @classmethod
-    def constraint_parameters(cls):
+    def constraint_parameters(cls) -> List[rdflib.URIRef]:
         return [SH_lessThanOrEquals]
 
     @classmethod
-    def constraint_name(cls):
+    def constraint_name(cls) -> str:
         return "LessThanOrEqualsConstraintComponent"
 
     def make_generic_messages(self, datagraph: GraphLike, focus_node, value_node) -> List[rdflib.Literal]:
@@ -533,7 +535,7 @@ class LessThanOrEqualsConstraintComponent(ConstraintComponent):
         non_conformant = False
         prefixes = dict(target_graph.namespaces())
         ltoe_path = shacl_path_to_sparql_path(self.shape.sg, ltoe, prefixes=prefixes)
-        ltoe_lookup_query = f"SELECT DISTINCT {' '.join(f'?v{i}' for i,_ in enumerate(f_v_dict))} WHERE {{\n"
+        ltoe_lookup_query = f"SELECT DISTINCT {' '.join(f'?v{i}' for i, _ in enumerate(f_v_dict))} WHERE {{\n"
         init_bindings = {}
         f_ltoe_results = {}
         for i, f in enumerate(f_v_dict.keys()):

@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
 from decimal import Decimal
+from typing import TYPE_CHECKING, Optional, Sequence
 
 from rdflib import RDF, Literal
 
 from pyshacl.consts import SH_condition, SH_deactivated, SH_order
 from pyshacl.errors import RuleLoadError
-from pyshacl.pytypes import SHACLExecutor
+from pyshacl.pytypes import RDFNode, SHACLExecutor
+
+if TYPE_CHECKING:
+    from rdflib.term import URIRef
+
+    from pyshacl.pytypes import GraphLike
 
 RDF_first = RDF.first
 
@@ -40,7 +46,7 @@ class SHACLRule(object):
         self.executor = executor
         self.shape = shape
         self.node = rule_node
-        self.iterate = False
+        self.iterate = iterate
 
         deactivated_nodes = list(self.shape.sg.objects(self.node, SH_deactivated))
         self._deactivated = len(deactivated_nodes) > 0 and bool(deactivated_nodes[0])
@@ -96,7 +102,7 @@ class SHACLRule(object):
                 conditions.append(condition)
         return conditions
 
-    def filter_conditions(self, focus_nodes, data_graph):
+    def filter_conditions(self, focus_nodes: Sequence[RDFNode], data_graph):
         conditions = self.get_conditions()
         applicable_focus_nodes = []
         for f in focus_nodes:
@@ -108,5 +114,10 @@ class SHACLRule(object):
                 applicable_focus_nodes.append(f)
         return applicable_focus_nodes
 
-    def apply(self, data_graph):
+    def apply(
+        self,
+        data_graph: 'GraphLike',
+        focus_nodes: Optional[Sequence[RDFNode]] = None,
+        target_graph_identifier: Optional['URIRef'] = None,
+    ):
         raise NotImplementedError()

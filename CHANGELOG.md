@@ -5,11 +5,195 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Python PEP 440 Versioning](https://www.python.org/dev/peps/pep-0440/).
 
 ## [Unreleased]
+
+## [0.40.1] - 2026-07-28
+
+### Fixed
+
+- Logic in sh:intersection list in SHACL Expressions
+  - Thanks @jclem326
+- Fixed python typing compatibility issue with Python v3.9
+  - Maintains continued compatibility with Python 3.9 on the 0.40.x series of releases.
+
+## [0.40.0] - 2026-07-08
+
+### Added
+- Compatibility with Oxigraph stores.
+  - PySHACL can now validate a graph that is loaded into a PyOxigraph `pyoxigraph.Store` instance. 
+  - New `DataGraph` graph abstraction layer that wraps RDFLib `Graph`/`Dataset` and, when installed, `pyoxigraph.Store`.
+  - Validation and SHACL Rules expansion can use an Oxigraph-backed data graph for faster SPARQL execution.
+  - Install with the new optional extra: `pip install pyshacl[oxigraph]`.
+  - Pass a `pyoxigraph.Store` directly to `validate()` or `shacl_rules()`.
+- SHACL Functions and SHACL-JS Functions now register and execute on both RDFLib and Oxigraph SPARQL engines.
+  - SPARQL constraints can invoke SHACL Functions as SPARQL extension functions when using an Oxigraph-backed data graph.
+- Python 3.13 support in the test matrix.
+  - `pyduktape2` dependency is now version-split for Python 3.13+.
+
+### Changed
+- Dropped `rdflib.ConjunctiveGraph` support throughout the codebase. **Breaking**
+  - ConjunctiveGraph has been deprecatd in RDFLib for a long time, it will be gone in RDFLib 8. Removing it now from PySHACL to prevent compatibility issues later.
+  - Multigraph inputs must be an `rdflib.Dataset`; bare `rdflib.Graph` remain supported for single-graph use.
+- Adapted to RDFLib 7.3+ API changes: `default_context` has been replaced with `default_graph`, and `contexts()` replaced with `graphs()`.
+  - Resolves #316
+  - Thanks @torsknod2
+- Updated minimum dependency versions:
+  - `rdflib[html]>=7.3.0,<8.0`
+  - `owlrl>=7.6.1,<8`
+- `validate_each()` now returns a dict keyed by input index (`int`) instead of by source identifier.
+- Internal validation and rules expansion now operate on the `DataGraph` wrapper rather than raw RDFLib graph objects.
+- SPARQL prefix resolution for shapes graphs stored in a `Dataset` now reads `sh:declare` blocks from the default graph.
+- DASH conformance checking now enumerates named graphs with `Dataset.graphs()` instead of the deprecated `contexts()` API.
+
+### Fixed
+- OWL `owl:imports` over HTTP no longer leaves closed `HTTPResponse` objects that trigger finalizer errors during garbage collection.
+  - Fixes #319
+  - Thanks @gaoflow 
+
+### Removed
+- Support for `rdflib.ConjunctiveGraph` as a data graph, shapes graph, or ontology graph input type. **Breaking**
+
+## [0.31.0] - 2026-01-16
+
+### Added
+- Support for validating multiple target data graphs.
+  - Default "combine" mode loads all given data graphs into a single Dataset and validates all at once.
+  - New "validate-each" mode validates each data graph independently and returns multiple results.
+  - CLI now accepts multiple data graph paths and adds a `--validate-each` flag.
+  - New `validate_each()` entrypoint for per-graph validation in library code.
+
+### Fixed
+- SPARQL constraint validation no longer misidentifies `VALUES` in property paths or predicate names.
+  - Fixes #301
+- Validation report text output is now deterministic.
+  - Fixes #304
+- `use_shapes` filtering no longer fails when omitted PropertyShapes are referenced by included shapes.
+  - Fixes #298
+
+## [0.30.1] - 2025-03-15
+
+### Fixed
+- Fixed a bug in SHACL Shape Targeting feature, BNode shapes that are referenced by a shape in `sh:or`, `sh:and` or `sh:xone` were not getting selected.
+  - Fixes #280
+
+
+## [0.30.0] - 2025-01-24
+
+### Fixed
+- Finalize the decoupling of `base_uri` from graph `identifier`.
+  - Blame the conflated naming of `publicID` in RDFLib for that confusion. 
+- `load_from_source` will now correctly detect and use the BaseURI of files passed in, for relative URIs.
+  - Fixes #281
+
+### Changed
+- Update to Poetry v2.0 and new pyproject.toml format.
+- Removed "Black", switched to "Ruff" for formatting as well as linting.
+- Switched to parsing `file:` IRIs in line with the RDF spec, and allow (base-less, or root-less) relative `file:` IRIs (as per the RDF spec).
+  - But "<file:>" IRIs in Turtle files are now _not_ made relative to BaseURI, because they are relative to the CWD.
+
+## [0.29.1] - 2024-12-16
+
+### Added
+- Two new basic examples in the Examples folder.
+  - "sparql_assert_datatype.py" shows how to use SPARQL-based Constraints to assert a datatype on a literal.
+  - "remote_sparql.py" shows how to use SparqlConnector store to validate data on a remote SPARQL endpoint.
+
+### Fixed
+- Fixed a bug where the `identifier` would become "None" (string) in the `load_from_source` function.
+- Typos in the example Ontology files in the test suite.
+
+
+## [0.29.0] - 2024-11-01
+
+### Added
+- When validating a Dataset instead of a bare Graph, PySHACL will now expand RDFS and OWL-RL inferences into
+  a separate named graph, to avoid polluting the datagraph.
+- When using SHACL Triple Rules from SHACL-AF spec, PySHACL will now add the expressed triples into
+  a separate named graph. This allows you to more easily get the expanded triples back out again afterward.
+  - This is implemented for TripleRules, SPARQLRules and JSRules
+
+### Changed
+- PySHACL no longer supports older RDFLib versions
+  - PySHACL relies on the latest OWL-RL version, that in-turn relies on the latest RDFLib version
+  - Therefore PySHACL now requires RDFLib v7.1.1 or newer
+- Dropped Python 3.8 support.
+  - Python developers discontinued Python 3.8 last month
+  - The next version of RDFLib and OWL-RL will not support Python 3.8
+  - Removed Python 3.8 from the RDFLib test suite
+  - Python 3.9-specific typing changes will be incrementally introduced
+
+## [0.28.1] - 2024-10-25
+
+### Fixed
+- PySHACL no longer overwrites the Python `root` logger and removes all its handlers. How Rude.
+
+## [0.28.0] - 2024-10-23
+### Added
+- owl:imports now works with bnode values, where it contains the following:
+  - schema:url is the string where to find the imported ontology
+  - schema:url (again) with a "file://" path, to a local copy of the ontology
+  - schema:identifier that is the canonical name to use for the ontology at load time (this is the publicID)
+- RDFUtil.loader `load_from_source` function now supports `identifier` that is akin to the publicID of the file being
+  loaded, and that is passed to RDFLib parser to correctly do relative URIs, etc.
+
+### Changed
+- Big change to how Milti-graph datasets (ie, rdflib.ConjunctiveGraph and rdflib.Dataset) are handled.
+  - Instead of validating each named graph individually, PySHACL now sets `defaultUnion=True` and
+  now validates the entire Dataset at once.
+  - This allows you to logically segment your dataset as desired into many individual named graphs, and validation
+  will still work as you expect it to.
+  - This is in preparation for another big upcoming change in pySHACL that will allow OWL-RL inferencing to place
+  inferred triples into a separate named graph, and SHACL Rules to place inferred triples into a separate named graph,
+  and validation will still work as expected because validation is now against a union of the whole dataset.
+- Pre-Compile Regexs in sh:Pattern constraints. This allows faster re-use of the constraint, if is applied to
+  many different targets.
+
+### Fixed
+- Attempting to stringify a focus_node ar a value_node from the datagraph, where that node doesn't actually exist in
+  the datagraph, no longer crashes, it falls back to a different method.
+
+
+## [0.27.0] - 2024-10-11
+### Added
+- SHACL Rules Expander Mode
+  - A new alternative Run Mode for PySHACL
+  - PySHACL will not validate the DataGraph against Shapes and Constraints, instead it will simply run all SHACL-AF Rules to expand the DataGraph.
+  - By default it will output a new graph containing the existing DataGraph Triples plus the expanded triples
+  - Run with inplace mode to expand the new triples directly into the input DataGraph
+- Focus Node Filtering
+  - You can now pass in a list of focus nodes to the validator, and it will only validate those focus nodes.
+  - Note, you still need to pass in a SHACL Shapes Graph, and the shapes still need to target the focus nodes.
+  - This feature will filter the Shapes' targeted focus nodes to include only those that are in the list of specified focus nodes.
+- SHACL Shape selection
+  - You can now pass in a list of SHACL Shapes to the validator, and it will use only those Shapes for validation.
+  - This is useful for testing new shapes in your shapes graph, or for many other procedure-driven use cases.
+- Combined Shape Selection with Focus Node filtering
+  - The combination of the above two new features is especially powerful.
+  - If you give the validator a list of Shapes to use, and a list of focus nodes, the validator will operate in
+    a highly-targeted mode, it feeds those focus nodes directly into those given Shapes for validation.
+  - In this mode, the selected SHACL Shape does not need to specify any focus-targeting mechanisms of its own.
+- Combined Rules Expander Mode with Shape Selection
+  - The combination of SHACL Rules Expander Mode and Shape Selection will allow specialised workflows.
+  - For example, you can run specific expansion rules from a SHACL Shapes File, based on the new triples required.
+
 ### Changed
 - Don't make a clone of the DataGraph if the input data graph is ephemeral.
   - An ephemeral graph is one that is loaded from a string or file location by PySHACL
   - This includes all files opened by the PySHACL CLI validator tool
   - We don't need to make a copy because PySHACL parsed the Graph into memory itself already, so we are not concerned about not polluting the user's graph.
+- Refactorings
+  - shacl_path_to_sparql_path code to a reusable importable function
+  - move sht_validate and dash_validate routes to `validator_conformance.py` module.
+    - Removes some complexity from the main `validate` function.
+- Typing
+  - A whole swathe of python typing fixes and new type annotations. Thanks @ajnelson-nist
+
+### Fixed
+- Fixed SHACL Path generation where sh:inversePath is wrapping a different kind of SHACL Path.
+  -  This probably fixes lots of unreported sh:inversePath bugs
+  -  Fixes #227
+- Fixed generic message generation when there are multiple sh:and, sh:or, or sh:xone constraints on a Shape.
+  - Fixes #220
+- Fix logic determining if a datagraph is ephemeral.
 
 
 ## [0.26.0] - 2024-04-11
@@ -1112,7 +1296,17 @@ just leaves the files open. Now it is up to the command-line client to close the
 
 - Initial version, limited functionality
 
-[Unreleased]: https://github.com/RDFLib/pySHACL/compare/v0.26.0...HEAD
+[Unreleased]: https://github.com/RDFLib/pySHACL/compare/v0.40.1...HEAD
+[0.40.1]: https://github.com/RDFLib/pySHACL/compare/v0.40.0...v0.40.1
+[0.40.0]: https://github.com/RDFLib/pySHACL/compare/v0.31.0...v0.40.0
+[0.31.0]: https://github.com/RDFLib/pySHACL/compare/v0.30.1...v0.31.0
+[0.30.1]: https://github.com/RDFLib/pySHACL/compare/v0.30.0...v0.30.1
+[0.30.0]: https://github.com/RDFLib/pySHACL/compare/v0.29.1...v0.30.0
+[0.29.1]: https://github.com/RDFLib/pySHACL/compare/v0.29.0...v0.29.1
+[0.29.0]: https://github.com/RDFLib/pySHACL/compare/v0.28.1...v0.29.0
+[0.28.1]: https://github.com/RDFLib/pySHACL/compare/v0.28.0...v0.28.1
+[0.28.0]: https://github.com/RDFLib/pySHACL/compare/v0.27.0...v0.28.0
+[0.27.0]: https://github.com/RDFLib/pySHACL/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/RDFLib/pySHACL/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/RDFLib/pySHACL/compare/v0.24.1...v0.25.0
 [0.24.1]: https://github.com/RDFLib/pySHACL/compare/v0.24.0...v0.24.1
