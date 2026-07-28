@@ -6,6 +6,15 @@ and this project adheres to [Python PEP 440 Versioning](https://www.python.org/d
 
 ## [Unreleased]
 
+## [0.40.1] - 2026-07-28
+
+### Fixed
+
+- Logic in sh:intersection list in SHACL Expressions
+  - Thanks @jclem326
+- Fixed python typing compatibility issue with Python v3.9
+  - Maintains continued compatibility with Python 3.9 on the 0.40.x series of releases.
+
 ## [0.40.0] - 2026-07-08
 
 ### Added
@@ -1287,7 +1296,8 @@ just leaves the files open. Now it is up to the command-line client to close the
 
 - Initial version, limited functionality
 
-[Unreleased]: https://github.com/RDFLib/pySHACL/compare/v0.40.0...HEAD
+[Unreleased]: https://github.com/RDFLib/pySHACL/compare/v0.40.1...HEAD
+[0.40.1]: https://github.com/RDFLib/pySHACL/compare/v0.40.0...v0.40.1
 [0.40.0]: https://github.com/RDFLib/pySHACL/compare/v0.31.0...v0.40.0
 [0.31.0]: https://github.com/RDFLib/pySHACL/compare/v0.30.1...v0.31.0
 [0.30.1]: https://github.com/RDFLib/pySHACL/compare/v0.30.0...v0.30.1
